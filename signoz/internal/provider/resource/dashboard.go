@@ -7,6 +7,7 @@ import (
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/model"
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -34,23 +35,23 @@ type dashboardResource struct {
 
 // dashboardResourceModel maps the resource schema data.
 type dashboardResourceModel struct {
-	CollapsableRowsMigrated types.Bool   `tfsdk:"collapsable_rows_migrated"`
-	CreatedAt               types.String `tfsdk:"created_at"`
-	CreatedBy               types.String `tfsdk:"created_by"`
-	Description             types.String `tfsdk:"description"`
-	ID                      types.String `tfsdk:"id"`
-	Layout                  types.String `tfsdk:"layout"`
-	Name                    types.String `tfsdk:"name"`
-	PanelMap                types.String `tfsdk:"panel_map"`
-	Source                  types.String `tfsdk:"source"`
-	Tags                    types.List   `tfsdk:"tags"`
-	Title                   types.String `tfsdk:"title"`
-	UpdatedAt               types.String `tfsdk:"updated_at"`
-	UpdatedBy               types.String `tfsdk:"updated_by"`
-	UploadedGrafana         types.Bool   `tfsdk:"uploaded_grafana"`
-	Variables               types.String `tfsdk:"variables"`
-	Version                 types.String `tfsdk:"version"`
-	Widgets                 types.String `tfsdk:"widgets"`
+	CollapsableRowsMigrated types.Bool           `tfsdk:"collapsable_rows_migrated"`
+	CreatedAt               types.String         `tfsdk:"created_at"`
+	CreatedBy               types.String         `tfsdk:"created_by"`
+	Description             types.String         `tfsdk:"description"`
+	ID                      types.String         `tfsdk:"id"`
+	Layout                  jsontypes.Normalized `tfsdk:"layout"`
+	Name                    types.String         `tfsdk:"name"`
+	PanelMap                jsontypes.Normalized `tfsdk:"panel_map"`
+	Source                  types.String         `tfsdk:"source"`
+	Tags                    types.List           `tfsdk:"tags"`
+	Title                   types.String         `tfsdk:"title"`
+	UpdatedAt               types.String         `tfsdk:"updated_at"`
+	UpdatedBy               types.String         `tfsdk:"updated_by"`
+	UploadedGrafana         types.Bool           `tfsdk:"uploaded_grafana"`
+	Variables               jsontypes.Normalized `tfsdk:"variables"`
+	Version                 types.String         `tfsdk:"version"`
+	Widgets                 jsontypes.Normalized `tfsdk:"widgets"`
 }
 
 // Configure adds the provider configured client to the resource.
@@ -93,6 +94,7 @@ func (r *dashboardResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			},
 			attr.Layout: schema.StringAttribute{
 				Required:    true,
+				CustomType:  jsontypes.NormalizedType{},
 				Description: "Layout of the dashboard.",
 			},
 			attr.Name: schema.StringAttribute{
@@ -100,7 +102,9 @@ func (r *dashboardResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Description: "Name of the dashboard.",
 			},
 			attr.PanelMap: schema.StringAttribute{
-				Optional: true,
+				Optional:   true,
+				Computed:   true,
+				CustomType: jsontypes.NormalizedType{},
 			},
 			attr.Source: schema.StringAttribute{
 				Optional:    true,
@@ -121,10 +125,13 @@ func (r *dashboardResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			},
 			attr.Variables: schema.StringAttribute{
 				Optional:    true,
+				Computed:    true,
+				CustomType:  jsontypes.NormalizedType{},
 				Description: "JSON map of dashboard template variables. Omit or use {} when none.",
 			},
 			attr.Widgets: schema.StringAttribute{
 				Required:    true,
+				CustomType:  jsontypes.NormalizedType{},
 				Description: "Widgets for the dashboard.",
 			},
 			attr.Version: schema.StringAttribute{
@@ -223,7 +230,7 @@ func (r *dashboardResource) Create(ctx context.Context, req resource.CreateReque
 
 	// align optional variables with read path (empty api map -> "{}")
 	if plan.Variables.IsNull() || plan.Variables.ValueString() == "" {
-		plan.Variables = types.StringValue("{}")
+		plan.Variables = jsontypes.NewNormalizedValue("{}")
 	}
 
 	// Set state to populated data.
