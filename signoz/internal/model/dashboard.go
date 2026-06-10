@@ -40,6 +40,12 @@ func (d Dashboard) PanelMapToTerraform() (types.String, error) {
 }
 
 func (d Dashboard) VariablesToTerraform() (types.String, error) {
+	// Handle empty variables map: return "{}" instead of ""
+	// to maintain idempotency across apply cycles
+	if d.Variables == nil || len(d.Variables) == 0 {
+		return types.StringValue("{}"), nil
+	}
+
 	variables, err := structure.FlattenJsonToString(d.Variables)
 	if err != nil {
 		return types.StringValue(""), err
@@ -73,7 +79,16 @@ func (d Dashboard) WidgetsToTerraform() (types.String, error) {
 }
 
 func (d *Dashboard) SetVariables(tfVariables types.String) error {
-	variables, err := structure.ExpandJsonFromString(tfVariables.ValueString())
+	if tfVariables.IsNull() || tfVariables.IsUnknown() {
+		d.Variables = map[string]interface{}{}
+		return nil
+	}
+	s := tfVariables.ValueString()
+	if s == "" {
+		d.Variables = map[string]interface{}{}
+		return nil
+	}
+	variables, err := structure.ExpandJsonFromString(s)
 	if err != nil {
 		return err
 	}
