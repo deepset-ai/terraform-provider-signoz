@@ -34,6 +34,7 @@ type alertModel struct {
 	ID                   types.String `tfsdk:"id"`
 	Alert                types.String `tfsdk:"alert"`
 	AlertType            types.String `tfsdk:"alert_type"`
+	Annotations          types.Map    `tfsdk:"annotations"`
 	BroadcastToAll       types.Bool   `tfsdk:"broadcast_to_all"`
 	Condition            types.String `tfsdk:"condition"`
 	Description          types.String `tfsdk:"description"`
@@ -98,6 +99,12 @@ func (d *alertDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 				Computed: true,
 				Description: fmt.Sprintf("Type of the alert. Possible values are: %s, %s, %s, and %s.",
 					model.AlertTypeMetrics, model.AlertTypeLogs, model.AlertTypeTraces, model.AlertTypeExceptions),
+			},
+			attr.Annotations: schema.MapAttribute{
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "Additional annotations of the alert as key-value pairs " +
+					"(excluding the description and summary annotations).",
 			},
 			attr.BroadcastToAll: schema.BoolAttribute{
 				Computed:           true,
@@ -228,7 +235,7 @@ func (d *alertDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	data.Alert = types.StringValue(alert.Alert)
 	data.AlertType = types.StringValue(alert.AlertType)
 	data.BroadcastToAll = types.BoolValue(alert.BroadcastToAll)
-	data.Description = types.StringValue(alert.Annotations.Description)
+	data.Description = types.StringValue(alert.DescriptionFromAnnotations())
 	data.Disabled = types.BoolValue(alert.Disabled)
 	data.EvalWindow = types.StringValue(alert.EvalWindow)
 	data.Frequency = types.StringValue(alert.Frequency)
@@ -236,7 +243,7 @@ func (d *alertDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	data.Severity = types.StringValue(alert.Labels[attr.Severity])
 	data.Source = types.StringValue(alert.Source)
 	data.State = types.StringValue(alert.State)
-	data.Summary = types.StringValue(alert.Annotations.Summary)
+	data.Summary = types.StringValue(alert.SummaryFromAnnotations())
 	data.Version = types.StringValue(alert.Version)
 
 	data.Condition, err = alert.ConditionToTerraform()
@@ -246,6 +253,9 @@ func (d *alertDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	}
 
 	data.Labels, diags = alert.LabelsToTerraform()
+	resp.Diagnostics.Append(diags...)
+
+	data.Annotations, diags = alert.ExtraAnnotationsToTerraform()
 	resp.Diagnostics.Append(diags...)
 
 	data.PreferredChannels, diags = alert.PreferredChannelsToTerraform()

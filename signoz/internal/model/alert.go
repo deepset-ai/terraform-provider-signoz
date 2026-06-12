@@ -50,7 +50,7 @@ type Alert struct {
 	ID                   string                 `json:"id"`
 	Alert                string                 `json:"alert"`
 	AlertType            string                 `json:"alertType"`
-	Annotations          AlertAnnotations       `json:"annotations"`
+	Annotations          map[string]string      `json:"annotations"`
 	BroadcastToAll       bool                   `json:"broadcastToAll"`
 	Condition            map[string]interface{} `json:"condition"`
 	Disabled             bool                   `json:"disabled,omitempty"`
@@ -83,10 +83,52 @@ type Renotify struct {
 	AlertStates      []string `json:"alertStates,omitempty"`
 }
 
-// Alert Annotations model.
-type AlertAnnotations struct {
-	Description string `json:"description"`
-	Summary     string `json:"summary"`
+// DescriptionFromAnnotations returns the value of the "description" annotation, if present.
+func (a Alert) DescriptionFromAnnotations() string {
+	if a.Annotations == nil {
+		return ""
+	}
+	return a.Annotations[attr.Description]
+}
+
+// SummaryFromAnnotations returns the value of the "summary" annotation, if present.
+func (a Alert) SummaryFromAnnotations() string {
+	if a.Annotations == nil {
+		return ""
+	}
+	return a.Annotations[attr.Summary]
+}
+
+// ExtraAnnotationsToTerraform returns all annotations except the canonical
+// "description" and "summary" keys as a Terraform map. When there are no extra
+// annotations, an empty (non-null) map is returned so the value round-trips cleanly.
+func (a Alert) ExtraAnnotationsToTerraform() (types.Map, diag.Diagnostics) {
+	elements := map[string]tfattr.Value{}
+	for key, value := range a.Annotations {
+		if key == attr.Description || key == attr.Summary {
+			continue
+		}
+		elements[key] = types.StringValue(value)
+	}
+	return types.MapValue(types.StringType, elements)
+}
+
+// SetAnnotations builds the outgoing annotations map from the extra annotations map
+// attribute, then overlays the canonical "description" and "summary" keys so they
+// always win and are always present.
+func (a *Alert) SetAnnotations(tfAnnotations types.Map, tfDescription, tfSummary types.String) {
+	annotations := make(map[string]string)
+
+	if !utils.IsNullOrUnknown(tfAnnotations) {
+		for key, value := range tfAnnotations.Elements() {
+			annotations[key] = strings.Trim(value.String(), "\"")
+		}
+	}
+
+	annotations[attr.Description] = tfDescription.ValueString()
+	annotations[attr.Summary] = tfSummary.ValueString()
+
+	a.Annotations = annotations
 }
 
 func (a Alert) GetID() string {

@@ -44,6 +44,7 @@ type alertResourceModel struct {
 	ID                   types.String `tfsdk:"id"`
 	Alert                types.String `tfsdk:"alert"`
 	AlertType            types.String `tfsdk:"alert_type"`
+	Annotations          types.Map    `tfsdk:"annotations"`
 	BroadcastToAll       types.Bool   `tfsdk:"broadcast_to_all"`
 	Condition            types.String `tfsdk:"condition"`
 	Description          types.String `tfsdk:"description"`
@@ -109,6 +110,14 @@ func (r *alertResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Validators: []validator.String{
 					stringvalidator.OneOf(model.AlertTypes...),
 				},
+			},
+			attr.Annotations: schema.MapAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "Additional annotations of the alert as key-value pairs (for example, " +
+					"related_logs or related_traces deep-links). The description and summary " +
+					"annotations are managed by their dedicated attributes and are excluded from this map.",
 			},
 			attr.BroadcastToAll: schema.BoolAttribute{
 				Optional: true,
@@ -299,12 +308,8 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	// Generate API request body.
 	alertPayload := &model.Alert{
-		Alert:     plan.Alert.ValueString(),
-		AlertType: plan.AlertType.ValueString(),
-		Annotations: model.AlertAnnotations{
-			Description: plan.Description.ValueString(),
-			Summary:     plan.Summary.ValueString(),
-		},
+		Alert:          plan.Alert.ValueString(),
+		AlertType:      plan.AlertType.ValueString(),
 		BroadcastToAll: plan.BroadcastToAll.ValueBool(),
 		EvalWindow:     plan.EvalWindow.ValueString(),
 		Frequency:      plan.Frequency.ValueString(),
@@ -313,6 +318,8 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 		Version:        plan.Version.ValueString(),
 		SchemaVersion:  plan.SchemaVersion.ValueString(),
 	}
+
+	alertPayload.SetAnnotations(plan.Annotations, plan.Description, plan.Summary)
 
 	err := alertPayload.SetCondition(plan.Condition)
 	if err != nil {
@@ -355,6 +362,8 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	// Map response to schema and populate Computed attributes.
 	plan.ID = types.StringValue(alert.ID)
+	plan.Description = types.StringValue(alert.DescriptionFromAnnotations())
+	plan.Summary = types.StringValue(alert.SummaryFromAnnotations())
 	plan.BroadcastToAll = types.BoolValue(alert.BroadcastToAll)
 	plan.Disabled = types.BoolValue(alert.Disabled)
 	plan.Source = types.StringValue(alert.Source)
@@ -375,6 +384,10 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 	var diagLabels diag.Diagnostics
 	plan.Labels, diagLabels = alert.LabelsToTerraform()
 	resp.Diagnostics.Append(diagLabels...)
+
+	var diagAnnotations diag.Diagnostics
+	plan.Annotations, diagAnnotations = alert.ExtraAnnotationsToTerraform()
+	resp.Diagnostics.Append(diagAnnotations...)
 
 	if alert.SchemaVersion != "" && alert.SchemaVersion != "v1" {
 		plan.NotificationSettings, diagLabels = alert.NotificationSettingsToTerraform(ctx)
@@ -420,7 +433,7 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	state.Alert = types.StringValue(alert.Alert)
 	state.AlertType = types.StringValue(alert.AlertType)
 	state.BroadcastToAll = types.BoolValue(alert.BroadcastToAll)
-	state.Description = types.StringValue(alert.Annotations.Description)
+	state.Description = types.StringValue(alert.DescriptionFromAnnotations())
 	state.Disabled = types.BoolValue(alert.Disabled)
 	state.EvalWindow = types.StringValue(alert.EvalWindow)
 	state.Frequency = types.StringValue(alert.Frequency)
@@ -428,7 +441,7 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	state.Severity = types.StringValue(alert.Labels[attr.Severity])
 	state.Source = types.StringValue(alert.Source)
 	state.State = types.StringValue(alert.State)
-	state.Summary = types.StringValue(alert.Annotations.Summary)
+	state.Summary = types.StringValue(alert.SummaryFromAnnotations())
 	state.Version = types.StringValue(alert.Version)
 	state.CreateAt = types.StringValue(alert.CreateAt)
 	state.CreateBy = types.StringValue(alert.CreateBy)
@@ -445,6 +458,10 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	var diagLabelsRead diag.Diagnostics
 	state.Labels, diagLabelsRead = alert.LabelsToTerraform()
 	resp.Diagnostics.Append(diagLabelsRead...)
+
+	var diagAnnotationsRead diag.Diagnostics
+	state.Annotations, diagAnnotationsRead = alert.ExtraAnnotationsToTerraform()
+	resp.Diagnostics.Append(diagAnnotationsRead...)
 
 	var diagPreferredChannels diag.Diagnostics
 	state.PreferredChannels, diagPreferredChannels = alert.PreferredChannelsToTerraform()
@@ -491,13 +508,9 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	// Generate API request body from plan.
 	var err error
 	alertUpdate := &model.Alert{
-		ID:        state.ID.ValueString(),
-		Alert:     plan.Alert.ValueString(),
-		AlertType: plan.AlertType.ValueString(),
-		Annotations: model.AlertAnnotations{
-			Description: plan.Description.ValueString(),
-			Summary:     plan.Summary.ValueString(),
-		},
+		ID:             state.ID.ValueString(),
+		Alert:          plan.Alert.ValueString(),
+		AlertType:      plan.AlertType.ValueString(),
 		BroadcastToAll: plan.BroadcastToAll.ValueBool(),
 		Disabled:       plan.Disabled.ValueBool(),
 		EvalWindow:     plan.EvalWindow.ValueString(),
@@ -512,6 +525,8 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		UpdateAt:       state.UpdateAt.ValueString(),
 		UpdateBy:       state.UpdateBy.ValueString(),
 	}
+
+	alertUpdate.SetAnnotations(plan.Annotations, plan.Description, plan.Summary)
 
 	err = alertUpdate.SetCondition(plan.Condition)
 	if err != nil {
@@ -559,7 +574,7 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	plan.Alert = types.StringValue(alert.Alert)
 	plan.AlertType = types.StringValue(alert.AlertType)
 	plan.BroadcastToAll = types.BoolValue(alert.BroadcastToAll)
-	plan.Description = types.StringValue(alert.Annotations.Description)
+	plan.Description = types.StringValue(alert.DescriptionFromAnnotations())
 	plan.Disabled = types.BoolValue(alert.Disabled)
 	plan.EvalWindow = types.StringValue(alert.EvalWindow)
 	plan.Frequency = types.StringValue(alert.Frequency)
@@ -567,7 +582,7 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	plan.Severity = types.StringValue(alert.Labels[attr.Severity])
 	plan.Source = types.StringValue(alert.Source)
 	plan.State = types.StringValue(alert.State)
-	plan.Summary = types.StringValue(alert.Annotations.Summary)
+	plan.Summary = types.StringValue(alert.SummaryFromAnnotations())
 	plan.Version = types.StringValue(alert.Version)
 	plan.SchemaVersion = types.StringValue(alert.SchemaVersion)
 	plan.CreateAt = types.StringValue(alert.CreateAt)
@@ -585,6 +600,10 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	var diagLabelsUpdate diag.Diagnostics
 	plan.Labels, diagLabelsUpdate = alert.LabelsToTerraform()
 	resp.Diagnostics.Append(diagLabelsUpdate...)
+
+	var diagAnnotationsUpdate diag.Diagnostics
+	plan.Annotations, diagAnnotationsUpdate = alert.ExtraAnnotationsToTerraform()
+	resp.Diagnostics.Append(diagAnnotationsUpdate...)
 
 	var diagPreferredChannelsUpdate diag.Diagnostics
 	plan.PreferredChannels, diagPreferredChannelsUpdate = alert.PreferredChannelsToTerraform()
