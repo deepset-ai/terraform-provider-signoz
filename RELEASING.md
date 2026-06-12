@@ -36,7 +36,9 @@ this fork** once the upstream PRs (#95, #82, #79) ship in a SigNoz release.
 2. Build and test locally against a real SigNoz using `dev_overrides` (no registry
    needed):
    ```sh
-   cd signoz && go build -o /tmp/tf-signoz-bin/terraform-provider-signoz .
+   # package main is at the REPO ROOT (not signoz/) — build from the root,
+   # otherwise you get a ~260KB .a archive instead of the ~67MB provider binary.
+   go build -o /tmp/tf-signoz-bin/terraform-provider-signoz .
    ```
    ```hcl
    # /tmp/tf-signoz-bin/dev.tfrc
